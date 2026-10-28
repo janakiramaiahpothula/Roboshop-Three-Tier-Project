@@ -10,7 +10,7 @@
         region: us-east-1
         image_id: ami-0055977a6e828a4f4
         instance_type: t3.micro
-        security_group: sg-0f87a6e45d9cdd34d
+        security_group: sg-03a9bac4c2c49a4e5
         state: running
         wait: true
       loop:
