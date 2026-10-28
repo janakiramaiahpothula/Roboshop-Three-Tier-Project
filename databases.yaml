@@ -1,0 +1,117 @@
+- name: Install and configure MongoDB
+  hosts: mongodb
+  become: true
+  tasks:
+    - name: Add MongoDB repository
+      ansible.builtin.yum_repository:
+        name: mongodb-org-7.0
+        description: MongoDB Community Repository
+        baseurl: "https://repo.mongodb.org/yum/amazon/2023/mongodb-org/7.0/$basearch/"
+        gpgcheck: true
+        gpgkey: https://pgp.mongodb.com/server-7.0.asc
+        enabled: true
+
+    - name: Install MongoDB
+      ansible.builtin.dnf:
+        name: mongodb-org
+        state: present
+
+    - name: Configure MongoDB network binding
+      ansible.builtin.replace:
+        path: /etc/mongod.conf
+        regexp: '^(\s*bindIp:\s*).*'
+        replace: '\g<1>127.0.0.1,{{ ansible_default_ipv4.address }}'
+      notify: Restart MongoDB
+
+    - name: Enable and start MongoDB
+      ansible.builtin.systemd:
+        name: mongod
+        enabled: true
+        state: started
+
+  handlers:
+    - name: Restart MongoDB
+      ansible.builtin.systemd:
+        name: mongod
+        state: restarted
+
+- name: Install and configure Redis-compatible Valkey
+  hosts: redis
+  become: true
+  tasks:
+    - name: Install Valkey
+      ansible.builtin.dnf:
+        name: valkey
+        state: present
+
+    - name: Configure Valkey to listen on private IP
+      ansible.builtin.lineinfile:
+        path: /etc/valkey/valkey.conf
+        regexp: '^bind '
+        line: "bind 127.0.0.1 {{ ansible_default_ipv4.address }}"
+      notify: Restart Valkey
+
+    - name: Enable and start Valkey
+      ansible.builtin.systemd:
+        name: valkey
+        enabled: true
+        state: started
+
+  handlers:
+    - name: Restart Valkey
+      ansible.builtin.systemd:
+        name: valkey
+        state: restarted
+
+- name: Install and configure RabbitMQ
+  hosts: rabbitmq
+  become: true
+  tasks:
+    - name: Import RabbitMQ signing keys
+      ansible.builtin.rpm_key:
+        state: present
+        key: "{{ item }}"
+      loop:
+        - https://github.com/rabbitmq/signing-keys/releases/download/3.0/rabbitmq-release-signing-key.asc
+        - https://github.com/rabbitmq/signing-keys/releases/download/3.0/cloudsmith.rabbitmq-erlang.E495BB49CC4BBE5B.key
+        - https://github.com/rabbitmq/signing-keys/releases/download/3.0/cloudsmith.rabbitmq-server.9F4587F226208342.key
+
+    - name: Configure RabbitMQ and Erlang repositories
+      ansible.builtin.copy:
+        dest: /etc/yum.repos.d/rabbitmq.repo
+        mode: "0644"
+        content: |
+          [modern-erlang]
+          name=RabbitMQ Erlang
+          baseurl=https://yum1.rabbitmq.com/erlang/el/9/$basearch
+          enabled=1
+          gpgcheck=1
+          repo_gpgcheck=1
+          gpgkey=https://github.com/rabbitmq/signing-keys/releases/download/3.0/cloudsmith.rabbitmq-erlang.E495BB49CC4BBE5B.key
+
+          [rabbitmq-server]
+          name=RabbitMQ Server
+          baseurl=https://yum2.rabbitmq.com/rabbitmq/el/9/$basearch
+          enabled=1
+          gpgcheck=1
+          repo_gpgcheck=1
+          gpgkey=https://github.com/rabbitmq/signing-keys/releases/download/3.0/cloudsmith.rabbitmq-server.9F4587F226208342.key
+
+    - name: Install Erlang and RabbitMQ
+      ansible.builtin.dnf:
+        name:
+          - erlang
+          - rabbitmq-server
+        state: present
+        update_cache: true
+
+    - name: Enable RabbitMQ management plugin
+      ansible.builtin.command:
+        cmd: rabbitmq-plugins enable rabbitmq_management
+        creates: /etc/rabbitmq/enabled_plugins
+
+    - name: Enable and start RabbitMQ
+      ansible.builtin.systemd:
+        name: rabbitmq-server
+        enabled: true
+        state: started
